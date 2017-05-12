@@ -5,6 +5,9 @@ import os
 import glob, os
 #class QchemData
 
+
+#Generalized set of functions for working with Q-Chem output files
+
 charge_tran = {'a1':-1,'a0':0,'c1':1,'c2':2}
 revd=dict([reversed(i) for i in charge_tran.items()])
 charge_tran.update(revd)

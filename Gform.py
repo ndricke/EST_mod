@@ -6,13 +6,14 @@ import os
 from collections import Counter
 
 
-class Gform:
-  def __init__(self, in_directory, therm_datafile):
+class Gform(object):
+  def __init__(self, in_directory, outfile_name, therm_datafile):
     print therm_datafile
     therm_col = ['mol_tag','E','dHf0','ddH-ddH_ss','H_zpe','S-S_ss','dGfaq']
     self.Gf_df = pd.DataFrame(columns=therm_col)
     self.therm_data = pd.read_csv(therm_datafile, index_col=0) #Contains thermo ref info
     self.indir = in_directory
+    self.outfile_name = outfile_name
     #Conversion factors and constants
     self.T = 298.15 #The assumed temperature
     self.Ht2kC = 627.509469 #The conversion factor for Hartree to kCal/mol
@@ -22,6 +23,7 @@ class Gform:
     #SSmPa is a dictionary with molecules per atom in standard state
     self.SSmPa = {'H':0.5,'C':1.0,'N':0.5,'O':0.5,'F':0.5,'Ni':1.0,'S':1.0}
 
+#Parses qchem output files and loads a Qdata instance with appropriate data
   def dG(self, infile, fq_file=None, pcm_file=None):
     print "Performing PCET Calc: " + infile
     qdat = Qdata.Qdata(infile)
@@ -48,17 +50,17 @@ class Gform:
     dGfaq = dGfg + 1.89 #+ qdat.Gpcm #qdat.loadPCM overwrites qdat.E w/ E including solv effects
     return [qdat.E,dHf0,ddH-ddH_ss,qdat.Hzpe,qdat.S-S_ss,dGfaq]
 
+#Main workhorse; iterate through target directory and scrape out thermodynamic information
   def batchDG(self):
     for filename in os.listdir(self.indir):
-     if filename.split('.')[-1] == 'out':
+     if filename.split('.')[-1] == 'out': #only work with output files, ignore everything else
       fspl = filename.split('_')
-      job = fspl[-2]
-      if job == 'sfq':
+      job = fspl[-2] #-1 is spin-charge tag, jobtype needs to be second to last
+      if job == 'sfq': #sfq is a solvated frequency calculation; this has all the info we need
         therm_list = self.dG(self.indir+"/"+filename,pcm_file=(self.indir+"/"+filename))
-      elif job == 'opfqSo' or job == 'sopfqSo':
-        chem_id = self.chemID(filename)
-        print "getting dG_formation"
+      elif job == 'opfqSo' or job == 'sopfqSo': #opt-freq-solventSP, also has all info but a little spread out
         therm_list = self.dG(self.indir+'/'+filename)
+      #freq run separately from solvation; look for corresponding PCM file
       elif ('freq' in job or 'fq' in job):
         chem_id = self.chemID(filename)
         for pcm_file in os.listdir(self.indir):
@@ -66,18 +68,21 @@ class Gform:
             pcm_id = self.chemID(pcm_file)
             if chem_id == pcm_id:
               therm_list = self.dG(self.indir+"/"+filename,pcm_file=(self.indir+"/"+pcm_file))
-      else: continue
+      else: continue #whatever the file is, it doesn't follow a recognizeable naming structure
       print filename + ": " + str(therm_list[-1]) #last item in therm_list is dGfaq, the important quantity
-      print [filename]+therm_list
       self.Gf_df.loc[len(self.Gf_df)] = [filename]+therm_list
-      print " "
+      print
     print self.Gf_df
+    self.Gf_df.to_csv(self.outfile_name)
 
+#the first part is whatever I named the molecule, the last is its spin-charge tag
+#this function just takes those 2 pieces because they should be enough to uniquely indentify the system
   def chemID(self, qoutname):
     splile = qoutname.split('.')[0]
     splile = splile.split('_')
     return splile[0] + splile[-1]
 
+#calculates thermodynamic data for the steady state
   def thermSS(self, Qdata):
     dHfatoms = 0.0
     S_ss = 0.0
@@ -93,10 +98,11 @@ class Gform:
     return Eatoms, dHfatoms, ddH_ss ,S_ss
 
 if __name__ == "__main__":
-  in_dir = sys.argv[1]
-  tdat = "/home/nricke/PyMod/tdat.csv"
-  gform = Gform(in_dir,tdat)
-  gform.batchDG()
+  in_dir = sys.argv[1] #directory where all of the jobs are stored
+  out_df_name = sys.argv[2] #outputs pandas dataframe to csv
+  tdat = os.path.join(sys.path[0],"tdat.csv")
+  gform = Gform(in_dir,out_df_name,tdat)
+  gform.batchDG() 
 
 
 

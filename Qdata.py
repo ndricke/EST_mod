@@ -19,8 +19,8 @@ gelec_key ='G_electrostatic'
 solG_key ='Total Free Energy (H0 + V/2 + non-elec)'
 solEtot_key ='Total energy in the final basis set'
 
-
-class Qdata:
+#Parsing class for Q-Chem output files
+class Qdata(object):
   def __init__(self, outfile):
     self.coord = None
     self.atoms = []
@@ -36,7 +36,7 @@ class Qdata:
                        }
     self.qParse(outfile)
 
-
+#main workhorse; iterate through file and grab stuff when it hits a key phrase
   def qParse(self, qchem_outfile):
     with open(qchem_outfile, 'r') as f:
       for line in f:
@@ -67,6 +67,7 @@ class Qdata:
     self.parse_base = {gelec_key:self.solvationG, solG_key:self.solvEnergy, solEtot_key:self.spEnergy}
     self.qParse(pcm_file)
 
+#Load information from another Qdata instance
   def readQdat(self,r_qdat,dtype):
     if dtype == 'fq':
       self.H = r_qdat.H
@@ -130,7 +131,7 @@ class Qdata:
       self.atoms.append(spline[1])
       self.coord[i,:] = [float(j) for j in spline[2:]]
 
-
+#short testing module for reading a frequency calculation
 if __name__ == "__main__":
   qdata = Qdata(sys.argv[1])
   print qdata.freq
