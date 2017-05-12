@@ -1,0 +1,25 @@
+$molecule
+0 1
+H 1.2425413796 0.0 0.0
+H 0.878609435418 0.878609435418 0.0
+H 7.60837161666e-17 1.2425413796 0.0
+H -0.878609435418 0.878609435418 0.0
+H -1.2425413796 1.52167432333e-16 0.0
+H -0.878609435418 -0.878609435418 0.0
+H -2.282511485e-16 -1.2425413796 0.0
+H 0.878609435418 -0.878609435418 0.0
+$end
+
+$rem
+method hf
+basis sto-3g
+correlation 105
+scf_guess core
+symmetry false
+sym_ignore true
+purecart 111
+iprint 200
+print_orbitals=99999
+use_new_path2 false
+save_ao_integrals 2
+$end
