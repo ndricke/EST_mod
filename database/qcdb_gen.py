@@ -34,8 +34,8 @@ dirpath = os.getcwd()
 for filename in os.listdir(datadir):
     fpath = '/'.join([dirpath,datadir,filename])
     if checkQcOut(fpath):
-        qco = qd.readQcOut(fpath)
-        sqliteQcOut(qc,con)
+        qcout = QD.Qdata(fpath)
+        sqliteQcOut(qcout,con)
         
 
 
