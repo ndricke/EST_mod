@@ -18,23 +18,25 @@ vibH_key ='Vibrational Enthalpy:'
 gelec_key ='G_electrostatic'
 solG_key ='Total Free Energy (H0 + V/2 + non-elec)'
 solEtot_key ='Total energy in the final basis set'
+job_key = 'jobtype'
+chmul_key = '$molecule'
 
 #Parsing class for Q-Chem output files
 class Qdata(object):
-  def __init__(self, outfile):
-    self.coord = None
-    self.atoms = []
-    self.E = None
-    self.freq = []
-    self.Gpcm = None
-    self.finish = False
-    self.H = None
-    self.Hzpe = None
+  def __init__(self):
+    #There was a point where I didn't include all of these, but hey, why not? It runs fast enough
     self.parse_base = {finish_key:self.isComplete, \
+                       chmul_key:self.chargeMult, \
                        sp_key:self.spEnergy, \
-                       coord_key:self.coordGrab
+                       coord_key:self.coordGrab, \
+                       entropy_key:self.entropy,\
+                       enthalpy_key:self.enthalpy,\
+                       zpe_key:self.zeroPointEnergy,\
+                       vibH_key:self.enthalpyVib, \
+                       gelec_key:self.solvationG,
+                       solG_key:self.solvEnergy, \
+                       job_key:self.jobtype, \
                        }
-    self.qParse(outfile)
 
 #main workhorse; iterate through file and grab stuff when it hits a key phrase
   def qParse(self, qchem_outfile):
@@ -46,39 +48,36 @@ class Qdata(object):
             func_point = self.parse_base[item]
             func_point(f,line)
 
-##I had thought I might use this code to automatically decide what to parse, but we do that from filename
-##through gform instead
-#  def inpParam(self, infile):
-#    job = None
-#    jobtype = infile.split('_')[-2]
-#    inp_list = CD.sectionGrab('$molecule','-----------',infile, 0,1)
+  def readFile(self, filename):
+    spl_filename = filename.split('.')
+    if spl_filename[-1] == 'xyz': #Just get the coordinates from the xyz file
+      with open(filename,'r') as f:
+        coord_list = f.read().splitlines(True)[2:]
+        self.coordArr(coord_list)
+    elif spl_filename[-1] == 'out': #Q-Chem output file
+      self.qParse(filename)
 
-  def loadFq(self,fq_file):
-    self.parse_base = {
-                #freq_key:self.frequencies,\
-                entropy_key:self.entropy,\
-                enthalpy_key:self.enthalpy,\
-                zpe_key:self.zeroPointEnergy,\
-                vibH_key:self.enthalpyVib
-               }
-    self.qParse(fq_file)
+  def default(self):
+    self.basis = '6-31+g*'
+    self.method = 'b3lyp'
+    self.mult = 1
+    self.charge = 0
+    self.job = 'sp'
 
-  def loadPCM(self, pcm_file):
-    self.parse_base = {gelec_key:self.solvationG, solG_key:self.solvEnergy, solEtot_key:self.spEnergy}
-    self.qParse(pcm_file)
-
-#Load information from another Qdata instance
-  def readQdat(self,r_qdat,dtype):
-    if dtype == 'fq':
-      self.H = r_qdat.H
-      self.S = r_qdat.S
-      self.Hvib = r_qdat.Hvib
-      self.Hzpe = r_qdat.Hzpe
-    if dtype == 'sp':
-      self.E = r_qdat.E
+  def listCoord(self):
+    coord_list = []
+    for i,atom in enumerate(self.atoms):
+      coord_list.append(' '.join([atom] + [str(co) for co in list(self.coord[i,:])]))
+    return coord_list
 
   def isComplete(self, infile = None,line=None):
     self.finish = True
+
+  def chargeMult(self,infile,line):
+    chmul = infile.next().strip('\n').split()
+    self.charge = int(chmul[0])
+    self.mult = int(chmul[1])
+    del self.parse_base[chmul_key]
 
   def spEnergy(self, infile, line):
     spline = line.split()
@@ -115,6 +114,7 @@ class Qdata(object):
   def solvationG(self, infile, line):
     spline = line.split()
     self.Gpcm = float(spline[-2])
+    self.solvation = 'pcm'
 
   def coordGrab(self, infile, line):
     key_end = "--------------"
@@ -124,12 +124,21 @@ class Qdata(object):
       if key_end in line:
         break
       grab_list.append(line.strip())
-    if self.coord == None: self.coord = np.zeros((len(grab_list),3))
+    self.coordArr(grab_list)
+  
+  def jobtype(self, infile, line):
+    spline = line.split()
+    self.job = spline[-1]
+
+  def coordArr(self,coord_list):
+    self.coord = np.zeros((len(coord_list),3))
     self.atoms = []
-    for i, line in enumerate(grab_list):
+    for i, line in enumerate(coord_list):
       spline = line.split()
       self.atoms.append(spline[1])
       self.coord[i,:] = [float(j) for j in spline[2:]]
+
+    
 
 #short testing module for reading a frequency calculation
 if __name__ == "__main__":
