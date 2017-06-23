@@ -53,6 +53,7 @@ class Qdata(object):
     if spl_filename[-1] == 'xyz': #Just get the coordinates from the xyz file
       with open(filename,'r') as f:
         coord_list = f.read().splitlines(True)[2:]
+        coord_list = [line.strip('\n') for line in coord_list]
         self.coordArr(coord_list)
     elif spl_filename[-1] == 'out': #Q-Chem output file
       self.qParse(filename)
@@ -62,7 +63,8 @@ class Qdata(object):
     self.method = 'b3lyp'
     self.mult = 1
     self.charge = 0
-    self.job = 'sp'
+    self.job = 'opt'
+    self.solvation = 'pcm'
 
   def listCoord(self):
     coord_list = []
@@ -135,8 +137,8 @@ class Qdata(object):
     self.atoms = []
     for i, line in enumerate(coord_list):
       spline = line.split()
-      self.atoms.append(spline[1])
-      self.coord[i,:] = [float(j) for j in spline[2:]]
+      self.atoms.append(spline[0])
+      self.coord[i,:] = [float(j) for j in spline[1:]]
 
     
 

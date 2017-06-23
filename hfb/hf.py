@@ -1,25 +1,26 @@
-import numpy
+import numpy as np
 import itertools
 import logging
+import scipy.optimize as sco
 
 if __name__=="__main__": logging.basicConfig()
 kennyloggins = logging.getLogger('hf')
 
 class HF:
-    def __init__(s,h,V,m,diis=True,tol=1e-8,rho_guess=None):
+    def __init__(s,h,V,m,scf='rca',tol=1e-8,rho_guess=None):
         s.h = h
         s.V = V
         s.m = m
-        s.diis = diis
+        s.scf = scf
         s.tol = tol
         s.count = 0
 
         s.n = s.h.shape[0] #Num rows is the dimension of the density matrix to be
-        if type(rho_guess) == numpy.ndarray:
+        if type(rho_guess) == np.ndarray:
             s.rho = rho_guess
             if s.rho.shape[0] != s.n: raise ValueError("Input HF guess has wrong shape")
         else:
-            s.rho = numpy.eye(s.n)
+            s.rho = np.eye(s.n)
 
         s.C = None
         s.e = None
@@ -27,7 +28,7 @@ class HF:
     @staticmethod
     def genFock(rho,h,V):
         if type(V) == float:
-            F = h + numpy.diag(numpy.diag(rho)*V)
+            F = h + np.diag(np.diag(rho)*V)
         elif len(V.shape)==4:
             F = h.copy()
             ri = range(len(h))
@@ -48,8 +49,9 @@ class HF:
         errs = []
         Fs = []
         while not converged:
-            s.count += 1; print s.count;
-            w,C = numpy.linalg.eigh(F)
+            s.count += 1 
+            if s.count % 10 == 0: print s.count;
+            w,C = np.linalg.eigh(F)
             
             # Check for HOMO-LUMO degeneracy
             homo = w[s.m-1]
@@ -58,55 +60,80 @@ class HF:
                 kennyloggins.warning("DANGER ZONE: HOMO and LUMO are degenerate")
 
             Cocc = C[:,:s.m]
-            rho_new = Cocc.dot(Cocc.T)
+            s.rho_new = Cocc.dot(Cocc.T)
 
-            F_new = s.genFock(rho_new,s.h,s.V)
+            F_new = s.genFock(s.rho_new,s.h,s.V)
             F_new_MO = C.T.dot(F_new).dot(C)
             #err = F_new_MO[:m,m:]
-            err = F_new.dot(rho_new) - rho_new.dot(F_new)
+            err = F_new.dot(s.rho_new) - s.rho_new.dot(F_new)
 
             errs.append(err)
             Fs.append(F_new)
-            if s.diis:
+            print "Rho_diff: ", np.linalg.norm(s.rho_new-s.rho)
+            if s.scf is 'diis':
                 F = HF._next_diis(errs, Fs)
+            elif s.scf is 'rca':
+                rho_rca, F = s._rca_iter()
+                s.rho = s.rho_new.copy()
             else:
-                s.rho = rho_new
+                s.rho = s.rho_new
                 F = F_new
 
-            converged = numpy.linalg.norm(err)<s.tol*n
+            converged = np.linalg.norm(err)<s.tol*n
             niter += 1
             emat = Cocc.T.dot(s.h+F).dot(Cocc)
             kennyloggins.debug("Levels: %s" % str([emat[i,i] for i in range(len(emat))]))
+            print np.trace(s.rho_new.dot(s.h+F))
+
+        s.F = F
+        s.C = C
+
         emat = Cocc.T.dot(s.h+F).dot(Cocc)
         e = 0
         for i in range(s.m):
             e += emat[i,i]
-        s.F = F
-        s.C = C
-        s.e = e
+        print e
+        s.e = np.trace(s.rho_new.dot(s.h+F))
+
+    def _rca_lc(s,a):
+        #print a
+        rho_rca = a*s.rho_new + (1.-a)*s.rho
+        F = s.genFock(rho_rca,s.h,s.V)
+        return rho_rca, F
+
+    def _rca_E(s,a):
+        rho, F = s._rca_lc(a)
+        return np.trace(rho.dot(s.h+F))
+        
+
+    def _rca_iter(s):
+        opt_res = sco.minimize(s._rca_E,0.5,method='L-BFGS-B',bounds=((0.,1.),)) 
+        a = opt_res.x
+        print "a: ", a
+        return s._rca_lc(a)
 
     @staticmethod
     def _next_diis(errs, Fs):
         n = len(errs)
-        B = numpy.zeros((n,n))
+        B = np.zeros((n,n))
         for i,j in itertools.product(range(n), range(n)):
-            B[i,j] = numpy.dot(errs[i].ravel(), errs[j].ravel())
-        A = numpy.zeros((n+1, n+1))
+            B[i,j] = np.dot(errs[i].ravel(), errs[j].ravel())
+        A = np.zeros((n+1, n+1))
         A[:n,:n] = B
         A[n,:] = -1
         A[:,n] = -1
         A[n,n] = 0
-        b = numpy.zeros(n+1)
+        b = np.zeros(n+1)
         b[n] = -1
         try:
-            x = numpy.linalg.solve(A,b)
-        except (numpy.linalg.linalg.LinAlgError):
+            x = np.linalg.solve(A,b)
+        except (np.linalg.linalg.LinAlgError):
             print "lin solver fails! Using pinv..."
-            P = numpy.linalg.pinv(A)
+            P = np.linalg.pinv(A)
             x = P.dot(b)
         w = x[:n]
 
-        F = numpy.zeros(Fs[0].shape)
+        F = np.zeros(Fs[0].shape)
         for i in range(n):
             F += w[i] * Fs[i]
         return F
@@ -134,45 +161,53 @@ class HF:
 
     def pdm2(s,P1):
         n = P1.shape[0]
-        P2 = numpy.zeros((n,n,n,n))
+        P2 = np.zeros((n,n,n,n))
         sz = range(n)
         for i,j,k,l in itertools.product(sz,sz,sz,sz):
             P2[i,j,k,l] = P1[k,i]*P1[j,l]
         return P2
 
 if __name__ == "__main__":
-    import lattice
+#    import lattice
     import sys
     import argparse
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-m', help='Number of electron pairs', type=int, required=True)
-    parser.add_argument('-l', help='Lattice file', type=str, required=True)
-    parser.add_argument('-o', help='Output file', type=str, required=True)
-    parser.add_argument('-guess', help='HF Guess', type=str)
-    args = parser.parse_args()
-
-    rho = numpy.genfromtxt(args.guess)
-
-    lat = lattice.Lattice.fromfile(args.l,args.m)
-    if args.guess != None: fock = HF(lat.h,lat.V,lat.m,rho_guess = rho) 
-    else: fock = HF(lat.h,lat.V,lat.m)
-    rho = fock.get_rho()
-    numpy.savetxt(args.o,rho)
-
-
-#    numpy.set_printoptions(precision=3, suppress = True)
-#    n = 480
-#    m = 311
-#    U = 8.0
-#    h = numpy.diag(numpy.ones(n-1),1)
-#    h[0,-1] = 1
-#    h += h.T
-#    h*=-1
-#    for i in range(0,n,2):
-#        h[i,i] = 1
+#    parser = argparse.ArgumentParser()
+#    parser.add_argument('-m', help='Number of electron pairs', type=int, required=True)
+#    parser.add_argument('-l', help='Lattice file', type=str, required=True)
+#    parser.add_argument('-o', help='Output file', type=str, required=True)
+#    parser.add_argument('-guess', help='HF Guess', type=str)
+#    args = parser.parse_args()
 #
-#    hf = HF(h,U,m)
-#    psi = hf.get_Cocc()
-#    print psi.dot(psi.T)*2
-#    print hf.get_energy()
+#    rho = np.genfromtxt(args.guess)
+#
+#    lat = lattice.Lattice.fromfile(args.l,args.m)
+#    if args.guess != None: fock = HF(lat.h,lat.V,lat.m,rho_guess = rho) 
+#    else: fock = HF(lat.h,lat.V,lat.m)
+#    rho = fock.get_rho()
+#    np.savetxt(args.o,rho)
+
+
+    np.set_printoptions(precision=3, suppress = True)
+    n = 22
+    m = 11
+    U = 4.0
+    h = np.diag(np.ones(n-1),1)
+    h[0,-1] = 1
+    h += h.T
+    h*=-1
+    for i in range(0,n,2):
+        h[i,i] = 1
+
+    hf = HF(h,U,m)
+    psi = hf.get_Cocc()
+    print hf.get_energy()
+
+#    hf2 = HF(h,U,m,scf='diis')
+#    psi2 = hf2.get_Cocc()
+#    print hf2.get_energy()
+
+
+
+
+
