@@ -50,12 +50,13 @@ class Qdata(object):
 
   def readFile(self, filename):
     spl_filename = filename.split('.')
-    if spl_filename[-1] == 'xyz': #Just get the coordinates from the xyz file
+    self.ftype = spl_filename[-1]
+    if self.ftype == 'xyz': #Just get the coordinates from the xyz file
       with open(filename,'r') as f:
         coord_list = f.read().splitlines(True)[2:]
         coord_list = [line.strip('\n') for line in coord_list]
         self.coordArr(coord_list)
-    elif spl_filename[-1] == 'out': #Q-Chem output file
+    elif self.ftype == 'out': #Q-Chem output file
       self.qParse(filename)
 
   def default(self):
@@ -65,6 +66,7 @@ class Qdata(object):
     self.charge = 0
     self.job = 'opt'
     self.solvation = 'pcm'
+    #self.solvation = 'None'
 
   def listCoord(self):
     coord_list = []
@@ -133,12 +135,14 @@ class Qdata(object):
     self.job = spline[-1]
 
   def coordArr(self,coord_list):
+    if self.ftype == 'xyz': split_at = 1
+    elif self.ftype == 'out': split_at = 2
     self.coord = np.zeros((len(coord_list),3))
     self.atoms = []
     for i, line in enumerate(coord_list):
       spline = line.split()
-      self.atoms.append(spline[0])
-      self.coord[i,:] = [float(j) for j in spline[1:]]
+      self.atoms.append(spline[split_at-1])
+      self.coord[i,:] = [float(j) for j in spline[split_at:]]
 
     
 

@@ -21,7 +21,7 @@ class HFB(object):
         s.mu = 0. #each time we re-calc applied potentials, we'll keep track of the total with mu
 
         if rho is None: #generate HF density matrix instead
-            hart = hf.HF(h,V,m)
+            hart = hf.HF(h,V,m,scf='diis')
             s.rho = hart.get_rho()
             s.E_hf = hart.e/s.n
             print "HF energy: ", s.E_hf
@@ -81,35 +81,32 @@ class HFB(object):
 
     def _do_hfb(s):
         converged = False
-        niter = 0; count = 0;
-        errs = []
-        Hs = []
+        count = 0;
         while not converged:
-            count += 1
-            if count % 10 == 0: print "HFB Iteration ",count
-            #print "HFB Iteration ",count
             #s.app_pot,convergence = s.occOpt()
             brack,success = s.occBrack() #applies nec. mu to tune pop to m
-#            print brack
             if success:
                 if brack == 0: s.app_pot,conv = (0.,'Zero-Limit')
                 else: s.app_pot,conv = sco.brentq(s.occDif,brack[0],brack[1],full_output=True) #XXX unreliable
             else: raise ValueError("Failed to find brackets for root")
-#            print "applying potential: ", s.app_pot
             s.mu += s.app_pot
             H_app = HFB.appH(s.H,s.app_pot)
             G_new = HFB.genG(H_app)
-            #print "trace(G[:n,:n]) - target: ", np.trace(G_new[:s.n,:s.n])-s.m
             s.F = hf.HF.genFock(G_new[:s.n,:s.n],s.h,s.V) #is HFB the same as HF for this part?
             s.Delta = HFB.genDelta(G_new[:s.n,s.n:],s.V) #are we applying this correctly?
             s.H = HFB.genH(s.F,s.Delta)
 
-            #err = H_new.dot(G_new) - G_new.dot(H_new)
-            err = G_new - s.G
+            #err = H_new.dot(G_new) - G_new.dot(H_new) #Blaizot_p189: [H,R]=0
+            err = G_new - s.G #I switched to this criteria b/c the other didn't seem to be working
             s.G = G_new
 
             converged = np.linalg.norm(err)<s.tol*n
-            niter += 1
+            count += 1
+            if count % 10 == 0: print "HFB Iteration ",count
+            #print brack
+            #print "applying potential: ", s.app_pot
+            #print "trace(G[:n,:n]) - target: ", np.trace(G_new[:s.n,:s.n])-s.m
+            #print "HFB Iteration ",count
             #print "HFB error: ",np.linalg.norm(err)
             #print "Stats: counter, bracket, applied potential, norm(G-G0)"
             #print count,brack,s.app_pot,np.linalg.norm(err)
@@ -163,6 +160,9 @@ class HFB(object):
         G = Wocc.dot(Wocc.T) 
         return G
 
+        
+
+
 if __name__ == "__main__":
     n = 16
     U = -4.
@@ -200,6 +200,8 @@ if __name__ == "__main__":
         print "Trace HFB G[:n,:n]: ",np.trace(inst.G[:inst.n,:inst.n])
         print "E: ", inst.E
         print "HF hacktrace: ",np.trace(np.dot(inst.G[:inst.n,:inst.n],inst.F+inst.h))/inst.n #misses non-0 Delta
+        print "E: ", inst.E
+        print "HF hacktrace: ",np.trace(np.dot(inst.G[:inst.n,:inst.n],inst.F+inst.h))/inst.n #misses non-0 Delta
         print "Err from HF rho: ", np.linalg.norm(inst.G[:inst.n,:inst.n]-inst.rho) #recovered HF density matrix
         print
 
@@ -207,8 +209,6 @@ if __name__ == "__main__":
     print "Diff of G's: ", np.linalg.norm(bogil.G-bogil2.G)
     print "Diff of H's: ", np.linalg.norm(bogil.H-bogil2.H)
     print "Diff of F's: ", np.linalg.norm(bogil.F-bogil2.F)
-
-
 
 
 
